@@ -68,7 +68,7 @@ end
 -- ==========================================
 -- 4. VISUAL GUIDE ENGINE (IMGUI OVERLAY)
 -- ==========================================
-addHook("onDrawImGui", function()
+addHook("OnDrawImGui", function()
     if not botEnabled then return end
     
     if ImGui and ImGui.Begin("Target Assist Overlay", true, ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize + ImGuiWindowFlags.AlwaysAutoResize + ImGuiWindowFlags.NoBackground) then
@@ -90,7 +90,7 @@ end)
 -- ==========================================
 -- 5. INTERCEPTOR COMMANDS (/start & /stop)
 -- ==========================================
-addHook("onSendPacket", function(type, packet)
+addHook("OnSendPacket", function(type, packet)
     if type == 2 and packet:find("action|input") then
         local cmd = packet:match("text|(/%a+)")
         if cmd then
@@ -124,11 +124,9 @@ runThread(function()
         if botEnabled then
             local pl = GetLocal()
             if pl then
-                -- Simpan posisi visual asli (dalam satuan pixel)
                 local visualX = pl.posX
                 local visualY = pl.posY
                 
-                -- Konversi ke koordinat ubin/tile game
                 local currentX = visualX // 32
                 local currentY = visualY // 32
 
@@ -234,7 +232,7 @@ runThread(function()
                     end
 
                 -- ----------------------------------
-                -- [STATE: READY] - FIXED PUNCH PACKET
+                -- [STATE: READY]
                 -- ----------------------------------
                 elseif currentState == "READY" then
                     readyToPunch = true
@@ -242,7 +240,6 @@ runThread(function()
                     local currentTile = GetTile(targetX, targetY)
                     if currentTile and currentTile.fg == farm_block_id then
                         
-                        -- PERBAIKAN F ATAL: pos_x/y diisi posisi berdiri player, int_x/y diisi posisi balok target
                         SendPacketRaw({
                             type = 3, 
                             int_data = fist_id, 
@@ -252,7 +249,8 @@ runThread(function()
                             int_y = targetY
                         })
                         
-                        local delayPukul = getPingDelay() + 40 
+                        -- SETELAN AMAN: Delay dinaikkan dari +40 ke +160 biar gak memicu AAC/DC
+                        local delayPukul = getPingDelay() + 160 
                         Sleep(delayPukul)
                         
                     else
@@ -263,6 +261,8 @@ runThread(function()
                         targetX, targetY = nil, nil
                         standX, standY = nil, nil
                         
+                        -- ANTI-SPAM BUFFER: Beri jeda 100ms agar client sinkron sebelum SCAN ulang
+                        Sleep(100) 
                         currentState = "SCAN"
                     end
                 end
