@@ -22,7 +22,6 @@ local currentState = "IDLE"
 local targetX, targetY = nil, nil
 local standX, standY = nil, nil
 
--- OPTIMASI HP: Menggunakan struktur angka (integer) agar HP tidak lag/freeze
 local blacklistedTargets = {}
 local hitCount = 0
 
@@ -76,7 +75,6 @@ end
 addHook("OnDrawImGui", function()
     if not botEnabled or not ImGui then return end
     
-    -- OPTIMASI HP: Mempersingkat render agar GPU HP tidak terbebani
     if ImGui.Begin("Target Assist", true, ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize + ImGuiWindowFlags.AlwaysAutoResize + ImGuiWindowFlags.NoBackground) then
         ImGui.TextColored(ImVec4(0, 255, 0, 255), "STATUS: " .. currentState)
         if targetLocked and targetX then
@@ -98,7 +96,7 @@ addHook("OnSendPacket", function(type, packet)
                 botEnabled = true
                 currentState = "INIT"
                 blacklistedTargets = {}
-                logToConsole("`2Sistem Diaktifkan (Mode Ringan HP).`")
+                logToConsole("`2Sistem Diaktifkan (Sinkronisasi Gerak Aktif).`")
                 return true
             elseif cmd == "/stop" then
                 botEnabled = false
@@ -164,7 +162,6 @@ runThread(function()
                             local ty = currentY + dy
                             local tile = GetTile(tx, ty)
                             
-                            -- OPTIMASI HP: Pakai perkalian matematika (Integer Key) biar HP gak bikin sampah memori perekatan string
                             local tKey = tx * 1000 + ty 
                             
                             if tile and tile.fg == farm_block_id and not blacklistedTargets[tKey] then
@@ -186,11 +183,11 @@ runThread(function()
                     else
                         radiusActive = false
                         blacklistedTargets = {} 
-                        Sleep(400) -- OPTIMASI HP: Naikkan delay scan kosong ke 400ms biar HP adem
+                        Sleep(300) 
                     end
 
                 -- ----------------------------------
-                -- [STATE: PATH]
+                -- [STATE: PATH] (BAGIAN YANG DIPERBAIKI)
                 -- ----------------------------------
                 elseif currentState == "PATH" then
                     standX, standY = findAdjacentEmptyTile(targetX, targetY)
@@ -201,29 +198,29 @@ runThread(function()
                             hitCount = 0
                             currentState = "READY"
                         else
-                            local clientPing = getPingDelay()
+                            -- 1. Hitung berapa kotak jarak yang harus ditempuh karakter
+                            local distanceToWalk = getDistance(currentX, currentY, standX, standY)
                             
+                            -- 2. Panggil fungsi jalan
                             pcall(FindPath, standX, standY)
-                            Sleep(clientPing + 100) 
                             
-                            local moveTimeout = 0
-                            while moveTimeout < 15 do -- Turunkan limit timeout biar gak looping kelamaan
-                                local checkPl = GetLocal()
-                                if checkPl then
-                                    local cx = checkPl.posX // 32
-                                    local cy = checkPl.posY // 32
-                                    if cx == standX and cy == standY then
-                                        pathFinished = true
-                                        hitCount = 0
-                                        currentState = "READY"
-                                        break
-                                    end
+                            -- 3. SINKRONISASI: Tahan script selama waktu perjalanan (1 kotak = ~160ms) + Ping
+                            local walkDelay = (distanceToWalk * 160) + getPingDelay()
+                            Sleep(walkDelay) 
+                            
+                            -- 4. Cek ulang posisi setelah masa tunggu perjalanan selesai
+                            local checkPl = GetLocal()
+                            if checkPl then
+                                local cx = checkPl.posX // 32
+                                  local cy = checkPl.posY // 32
+                                if cx == standX and cy == standY then
+                                    pathFinished = true
+                                    hitCount = 0
+                                    currentState = "READY"
                                 end
-                                
-                                Sleep(100) -- OPTIMASI HP: Jangan sleep terlalu cepat di dalam sub-loop
-                                moveTimeout = moveTimeout + 1
                             end
                             
+                            -- Jika setelah ditunggu ternyata belum sampai juga (karena nyangkut)
                             if currentState == "PATH" then
                                 local tKey = targetX * 1000 + targetY
                                 blacklistedTargets[tKey] = true
@@ -249,11 +246,13 @@ runThread(function()
                     local currentTile = GetTile(targetX, targetY)
                     if currentTile and currentTile.fg == farm_block_id and hitCount < 8 then
                         
+                        -- Mengambil koordinat real-time terbaru setelah dipastikan sampai
+                        local livePl = GetLocal()
                         SendPacketRaw({
                             type = 3, 
                             int_data = fist_id, 
-                            pos_x = visualX, 
-                            pos_y = visualY,
+                            pos_x = livePl.posX, 
+                            pos_y = livePl.posY,
                             int_x = targetX,
                             int_y = targetY
                         })
@@ -274,13 +273,13 @@ runThread(function()
                         targetX, targetY = nil, nil
                         standX, standY = nil, nil
                         
-                        Sleep(150) -- Jeda napas setelah menghancurkan balok
+                        Sleep(150) 
                         currentState = "SCAN"
                     end
                 end
 
             end
         end
-        Sleep(100) -- OPTIMASI UTAMA HP: Naikkan dari 50ms ke 100ms agar CPU HP super adem!
+        Sleep(100) 
     end
 end)
