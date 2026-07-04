@@ -6,30 +6,24 @@ IS_RUNNING_SCRIPT = true
 -- ==========================================
 local farm_block_id = 3200
 local restock_item_id = 3206
-local fist_id = 18
+local fist_id = 18  -- SUDAH BENAR: 18 adalah ID Fist/Pukul resmi Growtopia
 
 -- ==========================================
 -- 2. STATE MACHINE VARIABLES
 -- ==========================================
 local botEnabled = false
 local equipmentReady = false
-local radiusActive = false
 local targetLocked = false
-local pathFinished = false
-local readyToPunch = false
 
 local currentState = "IDLE" 
 local targetX, targetY = nil, nil
-local standX, standY = nil, nil
-
-local blacklistedTargets = {}
 local hitCount = 0
 
 -- ==========================================
 -- 3. HELPER FUNCTIONS
 -- ==========================================
 local function logToConsole(msg)
-    SendVariant({v1 = "OnConsoleMessage", v2 = "`6[TARGET-ASSIST] `w" .. msg})
+    SendVariant({v1 = "OnConsoleMessage", v2 = "`6[AIM-ASSIST] `w" .. msg})
 end
 
 local function getPingDelay()
@@ -56,29 +50,18 @@ local function getInventoryAmount(id)
     return 0
 end
 
-local function findAdjacentEmptyTile(tx, ty)
-    local offsets = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
-    for i = 1, 4 do
-        local os = offsets[i]
-        local ex, ey = tx + os[1], ty + os[2]
-        local tile = GetTile(ex, ey)
-        if tile and tile.fg == 0 then
-            return ex, ey
-        end
-    end
-    return nil, nil
-end
-
 -- ==========================================
 -- 4. VISUAL GUIDE ENGINE (IMGUI OVERLAY)
 -- ==========================================
 addHook("OnDrawImGui", function()
     if not botEnabled or not ImGui then return end
     
-    if ImGui.Begin("Target Assist", true, ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize + ImGuiWindowFlags.AlwaysAutoResize + ImGuiWindowFlags.NoBackground) then
-        ImGui.TextColored(ImVec4(0, 255, 0, 255), "STATUS: " .. currentState)
+    if ImGui.Begin("Aim Assist Overlay", true, ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize + ImGuiWindowFlags.AlwaysAutoResize + ImGuiWindowFlags.NoBackground) then
+        ImGui.TextColored(ImVec4(0, 255, 0, 255), "AIM ASSIST: ACTIVE")
         if targetLocked and targetX then
-            ImGui.TextColored(ImVec4(255, 215, 0, 255), "LOCK: " .. targetX .. "," .. targetY)
+            ImGui.TextColored(ImVec4(255, 215, 0, 255), "LOCKED TARGET: (" .. targetX .. "," .. targetY .. ")")
+        else
+            ImGui.TextColored(ImVec4(255, 255, 255, 255), "Mencari balok terdekat...")
         end
         ImGui.End()
     end
@@ -95,20 +78,15 @@ addHook("OnSendPacket", function(type, packet)
             if cmd == "/start" then
                 botEnabled = true
                 currentState = "INIT"
-                blacklistedTargets = {}
-                logToConsole("`2Sistem Diaktifkan (Sinkronisasi Gerak Aktif).`")
+                logToConsole("`2Aim Assist Dinyalakan. Gerakkan karaktermu secara manual!`")
                 return true
             elseif cmd == "/stop" then
                 botEnabled = false
                 equipmentReady = false
-                radiusActive = false
                 targetLocked = false
-                pathFinished = false
-                readyToPunch = false
                 targetX, targetY = nil, nil
-                blacklistedTargets = {}
                 currentState = "IDLE"
-                logToConsole("`4Sistem Dinonaktifkan.`")
+                logToConsole("`4Aim Assist Dimatikan.`")
                 return true
             end
         end
@@ -116,7 +94,7 @@ addHook("OnSendPacket", function(type, packet)
 end)
 
 -- ==========================================
--- 6. CORE STATE MACHINE LOOP
+-- 6. CORE AIM ASSIST LOOP
 -- ==========================================
 runThread(function()
     while true do
@@ -141,31 +119,30 @@ runThread(function()
                         Sleep(150)
                         
                         equipmentReady = true
-                        currentState = "SCAN"
+                        currentState = "AIM_SCAN"
                     else
-                        logToConsole("`4[ERROR] Item 3206 Habis.`")
+                        logToConsole("`4[ERROR] Item 3206 tidak siap.`")
                         botEnabled = false
                         currentState = "IDLE"
                     end
 
                 -- ----------------------------------
-                -- [STATE: SCAN]
+                -- [STATE: AIM_SCAN] (Mencari & Mengunci Target)
                 -- ----------------------------------
-                elseif currentState == "SCAN" then
-                    radiusActive = true
+                elseif currentState == "AIM_SCAN" then
                     local closestDist = 9999
                     local foundX, foundY = nil, nil
 
+                    -- Scan radius jangkauan pukulan tangan (2 kotak ke segala arah)
                     for dx = -2, 2 do
                         for dy = -2, 2 do
                             local tx = currentX + dx
                             local ty = currentY + dy
                             local tile = GetTile(tx, ty)
                             
-                            local tKey = tx * 1000 + ty 
-                            
-                            if tile and tile.fg == farm_block_id and not blacklistedTargets[tKey] then
+                            if tile and tile.fg == farm_block_id then
                                 local dist = getDistance(currentX, currentY, tx, ty)
+                                -- Mengunci balok yang jaraknya paling dekat dengan posisi berdiri player saat ini
                                 if dist < closestDist then
                                     closestDist = dist
                                     foundX = tx
@@ -179,74 +156,24 @@ runThread(function()
                         targetX = foundX
                         targetY = foundY
                         targetLocked = true
-                        currentState = "PATH"
+                        hitCount = 0
+                        currentState = "AUTO_HIT"
                     else
-                        radiusActive = false
-                        blacklistedTargets = {} 
-                        Sleep(300) 
-                    end
-
-                -- ----------------------------------
-                -- [STATE: PATH] (BAGIAN YANG DIPERBAIKI)
-                -- ----------------------------------
-                elseif currentState == "PATH" then
-                    standX, standY = findAdjacentEmptyTile(targetX, targetY)
-                    
-                    if standX and standY then
-                        if currentX == standX and currentY == standY then
-                            pathFinished = true
-                            hitCount = 0
-                            currentState = "READY"
-                        else
-                            -- 1. Hitung berapa kotak jarak yang harus ditempuh karakter
-                            local distanceToWalk = getDistance(currentX, currentY, standX, standY)
-                            
-                            -- 2. Panggil fungsi jalan
-                            pcall(FindPath, standX, standY)
-                            
-                            -- 3. SINKRONISASI: Tahan script selama waktu perjalanan (1 kotak = ~160ms) + Ping
-                            local walkDelay = (distanceToWalk * 160) + getPingDelay()
-                            Sleep(walkDelay) 
-                            
-                            -- 4. Cek ulang posisi setelah masa tunggu perjalanan selesai
-                            local checkPl = GetLocal()
-                            if checkPl then
-                                local cx = checkPl.posX // 32
-                                  local cy = checkPl.posY // 32
-                                if cx == standX and cy == standY then
-                                    pathFinished = true
-                                    hitCount = 0
-                                    currentState = "READY"
-                                end
-                            end
-                            
-                            -- Jika setelah ditunggu ternyata belum sampai juga (karena nyangkut)
-                            if currentState == "PATH" then
-                                local tKey = targetX * 1000 + targetY
-                                blacklistedTargets[tKey] = true
-                                targetLocked = false
-                                currentState = "SCAN"
-                                Sleep(150)
-                            end
-                        end
-                    else
-                        local tKey = targetX * 1000 + targetY
-                        blacklistedTargets[tKey] = true
                         targetLocked = false
-                        currentState = "SCAN"
-                        Sleep(150)
+                        targetX, targetY = nil, nil
+                        Sleep(100) -- Jika tidak ada balok di sekitar, tunggu player berjalan mendekati balok
                     end
 
                 -- ----------------------------------
-                -- [STATE: READY]
+                -- [STATE: AUTO_HIT] (Mengeksekusi Pukulan Akurat)
                 -- ----------------------------------
-                elseif currentState == "READY" then
-                    readyToPunch = true
-                    
+                elseif currentState == "AUTO_HIT" then
                     local currentTile = GetTile(targetX, targetY)
-                    if currentTile and currentTile.fg == farm_block_id and hitCount < 8 then
+                    
+                    -- Cek real-time apakah balok masih ada dan jaraknya masih dalam jangkauan pukul (maksimal 2 kotak)
+                    if currentTile and currentTile.fg == farm_block_id and getDistance(currentX, currentY, targetX, targetY) <= 3 and hitCount < 10 then
                         
-                        -- Mengambil koordinat real-time terbaru setelah dipastikan sampai
+                        -- Mengirim paket pukulan langsung tertuju ke target koordinat balok
                         local livePl = GetLocal()
                         SendPacketRaw({
                             type = 3, 
@@ -258,28 +185,21 @@ runThread(function()
                         })
                         
                         hitCount = hitCount + 1
-                        local delayPukul = getPingDelay() + 180 
+                        local delayPukul = getPingDelay() + 160 
                         Sleep(delayPukul)
                         
                     else
-                        if hitCount >= 8 then
-                            local tKey = targetX * 1000 + targetY
-                            blacklistedTargets[tKey] = true
-                        end
-                        
+                        -- Jika balok sudah hancur ATAU player berjalan menjauh dari jangkauan balok tersebut
                         targetLocked = false
-                        pathFinished = false
-                        readyToPunch = false
                         targetX, targetY = nil, nil
-                        standX, standY = nil, nil
                         
-                        Sleep(150) 
-                        currentState = "SCAN"
+                        Sleep(50) 
+                        currentState = "AIM_SCAN" -- Scan ulang mencari balok terdekat berikutnya
                     end
                 end
 
             end
         end
-        Sleep(100) 
+        Sleep(50) -- Loop utama berjalan sangat cepat dan ringan demi responsivitas aim yang instan
     end
 end)
