@@ -29,15 +29,13 @@ local function logToConsole(msg)
     SendVariant({v1 = "OnConsoleMessage", v2 = "`6[TARGET-ASSIST] `w" .. msg})
 end
 
--- Fungsi Otomatis Mendapatkan Ping Client (Buffer Adaptif)
 local function getPingDelay()
-    local ping = 100 -- Nilai default jika API client gagal membaca
+    local ping = 100 
     if GetPing then
         ping = GetPing()
     elseif GetLocal and GetLocal().ping then
         ping = GetLocal().ping
     end
-    -- Batasi ping minimal 50ms dan maksimal 400ms agar logika loop tetap rasional
     return math.max(50, math.min(ping, 400))
 end
 
@@ -70,7 +68,7 @@ end
 -- ==========================================
 -- 4. VISUAL GUIDE ENGINE (IMGUI OVERLAY)
 -- ==========================================
-addHook(function()
+addHook("onDrawImGui", function()
     if not botEnabled then return end
     
     if ImGui and ImGui.Begin("Target Assist Overlay", true, ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize + ImGuiWindowFlags.AlwaysAutoResize + ImGuiWindowFlags.NoBackground) then
@@ -87,12 +85,12 @@ addHook(function()
         end
         ImGui.End()
     end
-end, "onDrawImGui")
+end)
 
 -- ==========================================
 -- 5. INTERCEPTOR COMMANDS (/start & /stop)
 -- ==========================================
-addHook(function(type, packet)
+addHook("onSendPacket", function(type, packet)
     if type == 2 and packet:find("action|input") then
         local cmd = packet:match("text|(/%a+)")
         if cmd then
@@ -116,7 +114,7 @@ addHook(function(type, packet)
             end
         end
     end
-end, "onSendPacket")
+end)
 
 -- ==========================================
 -- 6. CORE STATE MACHINE LOOP
@@ -126,8 +124,13 @@ runThread(function()
         if botEnabled then
             local pl = GetLocal()
             if pl then
-                local currentX = pl.posX // 32
-                local currentY = pl.posY // 32
+                -- Simpan posisi visual asli (dalam satuan pixel)
+                local visualX = pl.posX
+                local visualY = pl.posY
+                
+                -- Konversi ke koordinat ubin/tile game
+                local currentX = visualX // 32
+                local currentY = visualY // 32
 
                 -- ----------------------------------
                 -- [STATE: INIT]
@@ -186,7 +189,7 @@ runThread(function()
                     end
 
                 -- ----------------------------------
-                -- [STATE: PATH] (ADAPTIF BERDASARKAN PING)
+                -- [STATE: PATH]
                 -- ----------------------------------
                 elseif currentState == "PATH" then
                     standX, standY = findAdjacentEmptyTile(targetX, targetY)
@@ -231,27 +234,28 @@ runThread(function()
                     end
 
                 -- ----------------------------------
-                -- [STATE: READY] - VERSI FULL AUTO PUNCH (Mengolah Ping)
+                -- [STATE: READY] - FIXED PUNCH PACKET
                 -- ----------------------------------
                 elseif currentState == "READY" then
                     readyToPunch = true
                     
                     local currentTile = GetTile(targetX, targetY)
                     if currentTile and currentTile.fg == farm_block_id then
-                        -- 1. Kirim paket pukulan (Punch) ke koordinat balok target
+                        
+                        -- PERBAIKAN F ATAL: pos_x/y diisi posisi berdiri player, int_x/y diisi posisi balok target
                         SendPacketRaw({
                             type = 3, 
                             int_data = fist_id, 
-                            pos_x = targetX * 32, 
-                            pos_y = targetY * 32
+                            pos_x = visualX, 
+                            pos_y = visualY,
+                            int_x = targetX,
+                            int_y = targetY
                         })
                         
-                        -- 2. Jeda pukulan adaptif: Ping asli kamu + buffer aman server 40ms
                         local delayPukul = getPingDelay() + 40 
                         Sleep(delayPukul)
                         
                     else
-                        -- Jika balok sudah hancur, bersihkan data koordinat dan cari yang baru
                         logToConsole("Target hancur! Mencari target berikutnya.")
                         targetLocked = false
                         pathFinished = false
@@ -265,6 +269,6 @@ runThread(function()
 
             end
         end
-        Sleep(50) -- Detak global yang menjaga kestabilan memori client game
+        Sleep(50) 
     end
 end)
