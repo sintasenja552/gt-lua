@@ -1,13 +1,10 @@
-if IS_RUNNING_SCRIPT then return end
-IS_RUNNING_SCRIPT = true
+botEnabled = false
+targetLocked = false
+targetX, targetY = nil, nil
 
 local farm_block_id = 3200
 local restock_item_id = 3206
 local fist_id = 18 
-
-local botEnabled = false
-local targetLocked = false
-local targetX, targetY = nil, nil
 
 local function logToConsole(msg)
     SendVariant({v1 = "OnConsoleMessage", v2 = "`6[AIM-ASSIST] `w" .. msg})
@@ -65,12 +62,10 @@ addHook("OnSendPacket", function(type, packet)
         end
     end
 
-    -- Kunci Update Raw: Mengirim struktur Raw Packet baru secara paksa ke server
     if botEnabled and type == 3 and packet.int_data == fist_id then
         if targetLocked and targetX and targetY then
             local pl = GetLocal()
             if pl then
-                -- Kirim raw packet baru yang sudah dipaksa mengarah ke balok target
                 SendPacketRaw({
                     type = 3,
                     int_data = fist_id,
@@ -79,7 +74,6 @@ addHook("OnSendPacket", function(type, packet)
                     int_x = targetX,
                     int_y = targetY
                 })
-                -- Return true untuk memblokir pukulan asli kamu yang "salah arah" agar tidak terkirim ke server
                 return true
             end
         end
