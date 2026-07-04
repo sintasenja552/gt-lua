@@ -65,15 +65,22 @@ addHook("OnSendPacket", function(type, packet)
         end
     end
 
+    -- Kunci Update Raw: Mengirim struktur Raw Packet baru secara paksa ke server
     if botEnabled and type == 3 and packet.int_data == fist_id then
         if targetLocked and targetX and targetY then
             local pl = GetLocal()
             if pl then
-                packet.int_x = targetX
-                packet.int_y = targetY
-                packet.pos_x = pl.posX
-                packet.pos_y = pl.posY
-                return false
+                -- Kirim raw packet baru yang sudah dipaksa mengarah ke balok target
+                SendPacketRaw({
+                    type = 3,
+                    int_data = fist_id,
+                    pos_x = pl.posX,
+                    pos_y = pl.posY,
+                    int_x = targetX,
+                    int_y = targetY
+                })
+                -- Return true untuk memblokir pukulan asli kamu yang "salah arah" agar tidak terkirim ke server
+                return true
             end
         end
     end
